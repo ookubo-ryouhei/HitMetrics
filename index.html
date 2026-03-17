@@ -119,4 +119,48 @@
                         ctx.arc(originX, originY, Math.abs(y.getPixelForValue(67) - originY), Math.PI * 1.25, Math.PI * 1.75);
                         ctx.stroke();
 
-                        // 5. 四つのベースを描画 (白塗りの
+                        // 5. 四つのベースを描画 (白塗りの四角)
+                        const drawBase = (vx, vy) => {
+                            ctx.fillStyle = "white";
+                            ctx.strokeStyle = lineStyle;
+                            ctx.fillRect(x.getPixelForValue(vx)-4, y.getPixelForValue(vy)-4, 8, 8);
+                            ctx.strokeRect(x.getPixelForValue(vx)-4, y.getPixelForValue(vy)-4, 8, 8);
+                        };
+                        drawBase(0, 0);       // 本塁
+                        drawBase(b1.x, b1.y); // 一塁
+                        drawBase(b2.x, b2.y); // 二塁
+                        drawBase(b3.x, b3.y); // 三塁
+
+                        ctx.restore();
+                    }
+                }
+            }
+        });
+    }
+
+    function updateDashboard() {
+        const selected = document.getElementById('playerSelect').value;
+        const filtered = selected === "全員" ? rawData : rawData.filter(d => d.name === selected);
+
+        const summary = {};
+        filtered.forEach(d => {
+            if(!summary[d.name]) summary[d.name] = { ab:0, hits:0 };
+            summary[d.name].ab++;
+            summary[d.name].hits += d.hit;
+        });
+
+        const tbody = document.getElementById('statsBody');
+        tbody.innerHTML = Object.keys(summary).map(name => {
+            const s = summary[name];
+            return `<tr><td>${name}</td><td>${s.ab}</td><td>${s.hits}</td><td>${(s.hits/s.ab).toFixed(3)}</td></tr>`;
+        }).join('');
+
+        chart.data.datasets[0].data = filtered.filter(d => d.hit === 1).map(d => ({x: d.x, y: d.y}));
+        chart.data.datasets[1].data = filtered.filter(d => d.hit === 0).map(d => ({x: d.x, y: d.y}));
+        chart.update();
+    }
+
+    window.onload = () => { initChart(); updateDashboard(); };
+</script>
+</body>
+</html>
