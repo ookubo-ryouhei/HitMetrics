@@ -2,26 +2,36 @@
 <html lang="ja">
 <head>
     <meta charset="UTF-8">
-    <title>Batlytics - Softball Edition</title>
+    <title>Batlytics - Softball Analysis</title>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
     <style>
-        :root { --bg: #f4f7f6; --card: #ffffff; --text: #333; }
-        body { font-family: sans-serif; background: var(--bg); margin: 0; display: flex; height: 100vh; color: var(--text); }
-        .sidebar { width: 260px; background: #2c3e50; color: white; padding: 25px; }
-        .main-content { flex: 1; padding: 25px; display: grid; grid-template-columns: 1fr 1.2fr; gap: 20px; overflow: hidden; }
-        .card { background: var(--card); border-radius: 12px; padding: 20px; box-shadow: 0 8px 20px rgba(0,0,0,0.08); }
-        h2 { margin-top: 0; font-size: 1.2rem; border-left: 4px solid #3498db; padding-left: 10px; }
-        select { width: 100%; padding: 12px; border-radius: 6px; border: none; background: #ecf0f1; margin-top: 10px; }
-        table { width: 100%; border-collapse: collapse; margin-top: 15px; }
-        th, td { padding: 12px; text-align: center; border-bottom: 1px solid #eee; }
-        .chart-container { position: relative; height: 550px; width: 100%; }
+        :root { --bg: #f0f2f5; --card: #ffffff; --primary: #2c3e50; }
+        body { font-family: 'Segoe UI', sans-serif; background: var(--bg); margin: 0; display: flex; height: 100vh; }
+        
+        /* サイドバー */
+        .sidebar { width: 280px; background: var(--primary); color: white; padding: 30px 20px; box-sizing: border-box; }
+        .sidebar h1 { font-size: 1.5rem; margin-bottom: 5px; }
+        .sidebar p { font-size: 0.9rem; opacity: 0.8; margin-bottom: 30px; }
+        
+        /* メインコンテンツ */
+        .main-content { flex: 1; padding: 25px; display: grid; grid-template-columns: 1fr 1.5fr; gap: 20px; overflow: hidden; }
+        .card { background: var(--card); border-radius: 15px; padding: 25px; box-shadow: 0 10px 30px rgba(0,0,0,0.1); display: flex; flex-direction: column; }
+        
+        select { width: 100%; padding: 12px; border-radius: 8px; border: 1px solid #ddd; margin-bottom: 20px; font-size: 1rem; }
+        
+        table { width: 100%; border-collapse: collapse; }
+        th { background: #f8f9fa; border-bottom: 2px solid #eee; padding: 12px; }
+        td { padding: 12px; text-align: center; border-bottom: 1px solid #eee; }
+
+        .chart-container { flex: 1; position: relative; min-height: 0; }
+        canvas { width: 100% !important; height: 100% !important; }
     </style>
 </head>
 <body>
 
 <div class="sidebar">
-    <h2>Batlytics Pro</h2>
-    <p>Softball Analysis Tool</p>
+    <h1>Batlytics Pro</h1>
+    <p>Softball Performance Tool</p>
     <label>選手選択</label>
     <select id="playerSelect" onchange="updateDashboard()">
         <option value="全員">全員</option>
@@ -32,7 +42,7 @@
 
 <div class="main-content">
     <div class="card">
-        <h2>📊 Statistics</h2>
+        <h2>📊 成績一覧</h2>
         <table>
             <thead><tr><th>選手名</th><th>打数</th><th>安打</th><th>打率</th></tr></thead>
             <tbody id="statsBody"></tbody>
@@ -40,7 +50,7 @@
     </div>
 
     <div class="card">
-        <h2>🏟️ Softball Spray Chart</h2>
+        <h2>🏟️ ソフトボール専用チャート</h2>
         <div class="chart-container">
             <canvas id="sprayChart"></canvas>
         </div>
@@ -48,93 +58,107 @@
 </div>
 
 <script>
+    // テストデータ
     const rawData = [
-        { name: "鈴木一郎", hit: 1, x: -15, y: 15 }, // 内野安打
+        { name: "鈴木一郎", hit: 1, x: -12, y: 12 }, 
         { name: "鈴木一郎", hit: 1, x: -35, y: 55 }, 
-        { name: "山田太郎", hit: 1, x: 5, y: 68 },  // センターオーバー
+        { name: "山田太郎", hit: 1, x: 0, y: 70 },
         { name: "山田太郎", hit: 0, x: 20, y: 25 },
+        { name: "山田太郎", hit: 1, x: 30, y: 45 },
     ];
 
     let chart;
-    const SOFTBALL_BASE_DIST = 18.29; // ソフトボールの塁間 (メートル)
+    const SOFTBALL_BASE_DIST = 18.29; // 塁間
 
     function initChart() {
         const ctx = document.getElementById('sprayChart').getContext('2d');
+        
+        // カスタムプラグイン: 球場の線を描画
+        const softballFieldPlugin = {
+            id: 'softballField',
+            beforeDatasetsDraw: (chart) => {
+                const {ctx, scales: {x, y}} = chart;
+                ctx.save();
+                
+                // 線の色を「純粋な黒」に設定
+                ctx.strokeStyle = "#000000"; 
+                ctx.lineWidth = 2; // 線を少し太く
+                ctx.setLineDash([]); // 実線
+
+                const originX = x.getPixelForValue(0);
+                const originY = y.getPixelForValue(0);
+
+                // --- 1. ファウルライン ---
+                ctx.beginPath();
+                ctx.moveTo(originX, originY);
+                ctx.lineTo(x.getPixelForValue(60), y.getPixelForValue(60));
+                ctx.moveTo(originX, originY);
+                ctx.lineTo(x.getPixelForValue(-60), y.getPixelForValue(60));
+                ctx.stroke();
+
+                // --- 2. ダイヤモンド (黒実線) ---
+                const bPos = SOFTBALL_BASE_DIST / Math.sqrt(2);
+                const b1 = { x: bPos, y: bPos };
+                const b2 = { x: 0, y: SOFTBALL_BASE_DIST * Math.sqrt(2) };
+                const b3 = { x: -bPos, y: bPos };
+
+                ctx.beginPath();
+                ctx.moveTo(originX, originY);
+                ctx.lineTo(x.getPixelForValue(b1.x), y.getPixelForValue(b1.y));
+                ctx.lineTo(x.getPixelForValue(b2.x), y.getPixelForValue(b2.y));
+                ctx.lineTo(x.getPixelForValue(b3.x), y.getPixelForValue(b3.y));
+                ctx.closePath();
+                ctx.stroke();
+
+                // --- 3. ピッチャーズサークル ---
+                ctx.beginPath();
+                const circleCenterY = y.getPixelForValue(13.11);
+                const radiusPx = Math.abs(x.getPixelForValue(2.44) - originX);
+                ctx.arc(originX, circleCenterY, radiusPx, 0, Math.PI * 2);
+                ctx.stroke();
+
+                // --- 4. 外野フェンス (半径67m) ---
+                ctx.beginPath();
+                const fenceRadiusPx = Math.abs(y.getPixelForValue(67) - originY);
+                ctx.arc(originX, originY, fenceRadiusPx, Math.PI * 1.25, Math.PI * 1.75);
+                ctx.stroke();
+
+                // --- 5. ベースの描画 (黒枠の白い四角) ---
+                const drawBase = (vx, vy) => {
+                    const px = x.getPixelForValue(vx);
+                    const py = y.getPixelForValue(vy);
+                    ctx.fillStyle = "white";
+                    ctx.fillRect(px - 5, py - 5, 10, 10);
+                    ctx.strokeRect(px - 5, py - 5, 10, 10);
+                };
+                drawBase(0, 0);       // 本塁
+                drawBase(b1.x, b1.y); // 一塁
+                drawBase(b2.x, b2.y); // 二塁
+                drawBase(b3.x, b3.y); // 三塁
+
+                ctx.restore();
+            }
+        };
+
         chart = new Chart(ctx, {
             type: 'scatter',
             data: {
                 datasets: [
-                    { label: '安打', data: [], backgroundColor: '#e74c3c', pointRadius: 7 },
-                    { label: '凡退', data: [], backgroundColor: '#3498db', pointRadius: 7 }
+                    { label: '安打', data: [], backgroundColor: '#ff4b4b', pointRadius: 8, z: 10 },
+                    { label: '凡退', data: [], backgroundColor: '#1f77b4', pointRadius: 8, z: 10 }
                 ]
             },
             options: {
                 maintainAspectRatio: false,
                 scales: {
-                    x: { min: -60, max: 60, display: false },
-                    y: { min: -10, max: 80, display: false }
+                    x: { min: -65, max: 65, display: false },
+                    y: { min: -10, max: 85, display: false }
                 },
                 plugins: {
-                    legend: { display: true, position: 'bottom' },
-                    beforeDraw: (chart) => {
-                        const {ctx, scales: {x, y}} = chart;
-                        ctx.save();
-                        
-                        const lineStyle = '#888888'; // 黒より少し薄め
-                        ctx.strokeStyle = lineStyle;
-                        ctx.lineWidth = 1.5;
-
-                        const originX = x.getPixelForValue(0);
-                        const originY = y.getPixelForValue(0);
-
-                        // 1. ファウルライン (Home -> Fence)
-                        ctx.beginPath();
-                        ctx.moveTo(originX, originY);
-                        ctx.lineTo(x.getPixelForValue(60), y.getPixelForValue(60));
-                        ctx.moveTo(originX, originY);
-                        ctx.lineTo(x.getPixelForValue(-60), y.getPixelForValue(60));
-                        ctx.stroke();
-
-                        // 2. 内野ダイヤモンド (塁間 18.29m)
-                        // 各ベースの座標計算 (45度傾いた正方形)
-                        const b1 = { x: SOFTBALL_BASE_DIST/Math.sqrt(2), y: SOFTBALL_BASE_DIST/Math.sqrt(2) };
-                        const b2 = { x: 0, y: SOFTBALL_BASE_DIST * Math.sqrt(2) };
-                        const b3 = { x: -SOFTBALL_BASE_DIST/Math.sqrt(2), y: SOFTBALL_BASE_DIST/Math.sqrt(2) };
-
-                        ctx.beginPath();
-                        ctx.moveTo(originX, originY); // 本塁
-                        ctx.lineTo(x.getPixelForValue(b1.x), y.getPixelForValue(b1.y)); // 一塁
-                        ctx.lineTo(x.getPixelForValue(b2.x), y.getPixelForValue(b2.y)); // 二塁
-                        ctx.lineTo(x.getPixelForValue(b3.x), y.getPixelForValue(b3.y)); // 三塁
-                        ctx.closePath();
-                        ctx.stroke();
-
-                        // 3. ピッチャーズサークル (半径 2.44m)
-                        ctx.beginPath();
-                        ctx.arc(x.getPixelForValue(0), y.getPixelForValue(13.11), Math.abs(x.getPixelForValue(2.44) - originX), 0, Math.PI * 2);
-                        ctx.stroke();
-
-                        // 4. 外野フェンス (半径 67m想定)
-                        ctx.beginPath();
-                        ctx.arc(originX, originY, Math.abs(y.getPixelForValue(67) - originY), Math.PI * 1.25, Math.PI * 1.75);
-                        ctx.stroke();
-
-                        // 5. 四つのベースを描画 (白塗りの四角)
-                        const drawBase = (vx, vy) => {
-                            ctx.fillStyle = "white";
-                            ctx.strokeStyle = lineStyle;
-                            ctx.fillRect(x.getPixelForValue(vx)-4, y.getPixelForValue(vy)-4, 8, 8);
-                            ctx.strokeRect(x.getPixelForValue(vx)-4, y.getPixelForValue(vy)-4, 8, 8);
-                        };
-                        drawBase(0, 0);       // 本塁
-                        drawBase(b1.x, b1.y); // 一塁
-                        drawBase(b2.x, b2.y); // 二塁
-                        drawBase(b3.x, b3.y); // 三塁
-
-                        ctx.restore();
-                    }
+                    legend: { position: 'bottom' }
                 }
-            }
+            },
+            plugins: [softballFieldPlugin] // プラグインを登録
         });
     }
 
@@ -142,6 +166,7 @@
         const selected = document.getElementById('playerSelect').value;
         const filtered = selected === "全員" ? rawData : rawData.filter(d => d.name === selected);
 
+        // 成績集計
         const summary = {};
         filtered.forEach(d => {
             if(!summary[d.name]) summary[d.name] = { ab:0, hits:0 };
@@ -155,6 +180,7 @@
             return `<tr><td>${name}</td><td>${s.ab}</td><td>${s.hits}</td><td>${(s.hits/s.ab).toFixed(3)}</td></tr>`;
         }).join('');
 
+        // チャート更新
         chart.data.datasets[0].data = filtered.filter(d => d.hit === 1).map(d => ({x: d.x, y: d.y}));
         chart.data.datasets[1].data = filtered.filter(d => d.hit === 0).map(d => ({x: d.x, y: d.y}));
         chart.update();
@@ -162,5 +188,6 @@
 
     window.onload = () => { initChart(); updateDashboard(); };
 </script>
+
 </body>
 </html>
