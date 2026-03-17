@@ -1,0 +1,203 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>打球分析ダッシュボード Pro</title>
+    <!-- Chart.js ライブラリ -->
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <style>
+        :root {
+            --bg-color: #f8f9fa;
+            --card-bg: #ffffff;
+            --primary: #007bff;
+            --accent: #ff4b4b;
+        }
+        body {
+            font-family: 'Helvetica Neue', Arial, sans-serif;
+            background-color: var(--bg-color);
+            margin: 0;
+            display: flex;
+            height: 100vh;
+        }
+        /* サイドバー */
+        .sidebar {
+            width: 250px;
+            background: #343a40;
+            color: white;
+            padding: 20px;
+            box-shadow: 2px 0 5px rgba(0,0,0,0.1);
+        }
+        select {
+            width: 100%;
+            padding: 10px;
+            border-radius: 5px;
+            margin-bottom: 20px;
+        }
+        /* メインコンテンツ */
+        .main-content {
+            flex: 1;
+            padding: 20px;
+            overflow-y: auto;
+            display: grid;
+            grid-template-columns: 1fr 1.2fr;
+            gap: 20px;
+        }
+        .card {
+            background: var(--card-bg);
+            border-radius: 10px;
+            padding: 20px;
+            box-shadow: 0 4px 6px rgba(0,0,0,0.05);
+        }
+        h1, h2 { margin-top: 0; color: #333; }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            margin-top: 10px;
+        }
+        th, td {
+            padding: 12px;
+            text-align: center;
+            border-bottom: 1px solid #ddd;
+        }
+        th { background-color: #f2f2f2; }
+        .chart-container {
+            position: relative;
+            height: 500px;
+            width: 100%;
+        }
+    </style>
+</head>
+<body>
+
+<div class="sidebar">
+    <h2>⚾ 設定</h2>
+    <label for="playerSelect">分析対象を選択:</label>
+    <select id="playerSelect" onchange="updateDashboard()">
+        <option value="全員">全員</option>
+        <option value="鈴木一郎">鈴木一郎</option>
+        <option value="山田太郎">山田太郎</option>
+        <option value="佐藤大樹">佐藤大樹</option>
+    </select>
+</div>
+
+<div class="main-content">
+    <div class="card">
+        <h2>📊 打撃成績</h2>
+        <table id="statsTable">
+            <thead>
+                <tr>
+                    <th>選手名</th><th>打席</th><th>打数</th><th>安打</th><th>打率</th>
+                </tr>
+            </thead>
+            <tbody id="statsBody"></tbody>
+        </table>
+    </div>
+
+    <div class="card">
+        <h2>🏟️ スプレーチャート</h2>
+        <div class="chart-container">
+            <canvas id="sprayChart"></canvas>
+        </div>
+    </div>
+</div>
+
+<script>
+    // 1. テストデータ (本来はDBからJSONとして出力)
+    const rawData = [
+        { name: "鈴木一郎", pa: 1, ab: 1, hit: 1, x: -30, y: 40 },
+        { name: "鈴木一郎", pa: 1, ab: 1, hit: 0, x: 10, y: 20 },
+        { name: "山田太郎", pa: 1, ab: 1, hit: 1, x: -5, y: 95 },
+        { name: "山田太郎", pa: 1, ab: 1, hit: 0, x: -40, y: 30 },
+        { name: "佐藤大樹", pa: 1, ab: 1, hit: 1, x: 15, y: 35 },
+        // ...データを増やす
+    ];
+
+    let chart;
+
+    // 2. チャートの初期化
+    function initChart() {
+        const ctx = document.getElementById('sprayChart').getContext('2d');
+        chart = new Chart(ctx, {
+            type: 'scatter',
+            data: {
+                datasets: [{
+                    label: '安打',
+                    data: [],
+                    backgroundColor: '#ff4b4b',
+                    pointRadius: 6
+                }, {
+                    label: '凡退',
+                    data: [],
+                    backgroundColor: '#1f77b4',
+                    pointRadius: 6
+                }]
+            },
+            options: {
+                maintainAspectRatio: false,
+                scales: {
+                    x: { min: -70, max: 70, display: false },
+                    y: { min: -10, max: 110, display: false }
+                },
+                plugins: {
+                    // 球場を描画するカスタムプラグイン
+                    beforeDraw: (chart) => {
+                        const {ctx, chartArea: {top, bottom, left, right, width, height}} = chart;
+                        ctx.save();
+                        const centerX = left + width / 2;
+                        const bottomY = bottom;
+                        
+                        // ファウルライン
+                        ctx.strokeStyle = '#999';
+                        ctx.beginPath();
+                        ctx.moveTo(centerX, bottomY); ctx.lineTo(left, top + height/4);
+                        ctx.moveTo(centerX, bottomY); ctx.lineTo(right, top + height/4);
+                        ctx.stroke();
+
+                        // フェンス
+                        ctx.beginPath();
+                        ctx.arc(centerX, bottomY, width/2, Math.PI * 1.25, Math.PI * 1.75);
+                        ctx.stroke();
+                        ctx.restore();
+                    }
+                }
+            }
+        });
+    }
+
+    // 3. ダッシュボードの更新
+    function updateDashboard() {
+        const selected = document.getElementById('playerSelect').value;
+        const filtered = selected === "全員" ? rawData : rawData.filter(d => d.name === selected);
+
+        // 成績テーブルの更新
+        const summary = {};
+        filtered.forEach(d => {
+            if(!summary[d.name]) summary[d.name] = { pa:0, ab:0, hits:0 };
+            summary[d.name].pa += d.pa;
+            summary[d.name].ab += d.ab;
+            summary[d.name].hits += d.hit;
+        });
+
+        const tbody = document.getElementById('statsBody');
+        tbody.innerHTML = "";
+        for (let name in summary) {
+            const s = summary[name];
+            const avg = (s.hits / s.ab).toFixed(3);
+            tbody.innerHTML += `<tr><td>${name}</td><td>${s.pa}</td><td>${s.ab}</td><td>${s.hits}</td><td>${avg}</td></tr>`;
+        }
+
+        // チャートデータの更新
+        chart.data.datasets[0].data = filtered.filter(d => d.hit === 1).map(d => ({x: d.x, y: d.y}));
+        chart.data.datasets[1].data = filtered.filter(d => d.hit === 0).map(d => ({x: d.x, y: d.y}));
+        chart.update();
+    }
+
+    window.onload = () => {
+        initChart();
+        updateDashboard();
+    };
+</script>
+
+</body>
+</html>
